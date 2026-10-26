@@ -17,6 +17,7 @@
   body.open .bar { display: flex; }
   .bar select, .bar input, .bar button { font: inherit; height: 30px; padding: 0 8px; border: 1px solid #d3d1cb; border-radius: 4px; background: #fff; color: inherit; }
   .bar input[name=gmap] { flex: 1 1 220px; min-width: 0; }
+  .bar input[name=label] { flex: 0 1 140px; min-width: 0; }
   .bar button { cursor: pointer; }
   .bar button:hover { background: #efefed; }
   .msg { flex-basis: 100%; font-size: 12px; color: #9b9a97; }
@@ -33,6 +34,7 @@
 <button type="button" class="toggle" id="toggle" aria-expanded="false" aria-controls="bar">📍 選擇地區 ▾</button>
 <form class="bar" id="bar">
   <select name="loc" title="預設地區"></select>
+  <input name="label" placeholder="標題（選填）" autocomplete="off" title="貼 Google Maps 連結時顯示在按鈕上的名稱">
   <input name="gmap" placeholder="貼 Google Maps 連結，或「緯度, 經度」" autocomplete="off">
   <select name="overlay" title="圖層">
     <option value="snowcover">積雪</option>
@@ -96,12 +98,19 @@ function setMsg(text, isErr) {
   msg.className = 'msg' + (isErr ? ' err' : '');
 }
 
-// 由目前表單狀態決定座標；回傳 { lat, lon, zoom, label } 或 null
+// 由目前表單狀態決定座標；回傳 { lat, lon, zoom, label } 或 null（有填標題就用標題當 label）
 function resolve() {
+  var c = resolveCoords();
+  if (c && form.label.value.trim()) c.label = form.label.value.trim();
+  return c;
+}
+
+function resolveCoords() {
   var gmap = form.gmap.value.trim();
   if (gmap) {
     var r = GMap.parseLocation(gmap);
     if (r.error) { setMsg(r.error, true); return null; }
+    form.loc.value = '';
     return { lat: r.lat, lon: r.lon, zoom: r.zoom || DEFAULT_ZOOM, label: r.lat.toFixed(4) + ', ' + r.lon.toFixed(4) };
   }
   var p = PRESETS.filter(function (x) { return x.id === form.loc.value; })[0] || PRESETS[0];
@@ -120,7 +129,7 @@ function apply() {
   toggleBtn.textContent = '📍 ' + c.label + ' ▾';
 
   // 把目前設定寫回網址，方便複製回 Notion
-  ['loc', 'gmap', 'overlay'].forEach(function (k) {
+  ['loc', 'label', 'gmap', 'overlay'].forEach(function (k) {
     var v = form[k].value.trim();
     if (k === 'loc' && form.gmap.value.trim()) v = '';
     v ? params.set(k, v) : params.delete(k);
@@ -142,11 +151,12 @@ function applyAndClose() {
   if (apply()) setOpen(false);
 }
 
-// 初始值：?loc=niseko 或 ?gmap=<連結或座標> 或 ?lat=..&lon=..；&overlay= &zoom= &ui=0（隱藏控制列）
+// 初始值：?loc=niseko 或 ?gmap=<連結或座標> 或 ?lat=..&lon=..；&label=<標題> &overlay= &zoom= &ui=0（隱藏控制列）
 (function init() {
   var q = new URLSearchParams(location.search);
   if (q.get('lat') && q.get('lon')) form.gmap.value = q.get('lat') + ', ' + q.get('lon');
   if (q.get('gmap')) form.gmap.value = q.get('gmap');
+  if (q.get('label')) form.label.value = q.get('label');
   if (q.get('loc')) form.loc.value = q.get('loc');
   if (q.get('overlay')) form.overlay.value = q.get('overlay');
   if (q.get('ui') === '0') document.body.classList.add('no-ui');
@@ -160,9 +170,11 @@ document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape') setOpen(false);
 });
 form.addEventListener('submit', function (e) { e.preventDefault(); applyAndClose(); });
-form.loc.addEventListener('change', function () { form.gmap.value = ''; applyAndClose(); });
+form.loc.addEventListener('change', function () { form.gmap.value = ''; form.label.value = ''; applyAndClose(); });
 form.overlay.addEventListener('change', apply);
-form.gmap.addEventListener('paste', function () { setTimeout(applyAndClose, 0); });
+// 貼上只更新地圖、不收合，方便接著填標題
+form.gmap.addEventListener('paste', function () { setTimeout(apply, 0); });
+form.label.addEventListener('input', apply);
 document.getElementById('shareBtn').addEventListener('click', function () {
   document.getElementById('share').classList.toggle('open');
 });

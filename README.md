@@ -9,6 +9,7 @@
 | `loc` | 預設地區 id（見 `index.html` 的 `PRESETS`） | `?loc=niseko` |
 | `gmap` | Google Maps 完整連結，或「緯度, 經度」（需 URL encode） | `?gmap=36.69,137.86` |
 | `lat` / `lon` | 直接給座標 | `?lat=36.69&lon=137.86` |
+| `label` | 顯示在收合按鈕上的標題（需 URL encode） | `&label=白馬八方尾根` |
 | `overlay` | `snowcover` `snow` `wind` `rain` `temp` `clouds` | `&overlay=wind` |
 | `zoom` | 縮放等級（覆蓋預設值） | `&zoom=10` |
 | `ui=0` | 隱藏上方控制列，只顯示地圖 | `&ui=0` |
