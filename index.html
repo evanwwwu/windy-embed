@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Windy 地區選擇</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font: 14px/1.4 -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", sans-serif; color: #37352f; }
+  body { display: flex; flex-direction: column; }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 8px; background: #f7f6f3; border-bottom: 1px solid #e9e9e7; }
+  .bar select, .bar input, .bar button { font: inherit; height: 30px; padding: 0 8px; border: 1px solid #d3d1cb; border-radius: 4px; background: #fff; color: inherit; }
+  .bar input[name=gmap] { flex: 1 1 220px; min-width: 0; }
+  .bar button { cursor: pointer; }
+  .bar button:hover { background: #efefed; }
+  .msg { flex-basis: 100%; font-size: 12px; color: #9b9a97; }
+  .msg.err { color: #e03e3e; }
+  .share { display: none; flex-basis: 100%; gap: 6px; }
+  .share.open { display: flex; }
+  .share input { flex: 1; font-size: 12px; }
+  iframe { flex: 1; width: 100%; border: 0; }
+  body.no-ui .bar { display: none; }
+</style>
+</head>
+<body>
+<form class="bar" id="bar">
+  <select name="loc" title="預設地區"></select>
+  <input name="gmap" placeholder="貼 Google Maps 連結，或「緯度, 經度」" autocomplete="off">
+  <select name="overlay" title="圖層">
+    <option value="snowcover">積雪</option>
+    <option value="snow">新雪</option>
+    <option value="wind">風</option>
+    <option value="rain">雨/雪</option>
+    <option value="temp">溫度</option>
+    <option value="clouds">雲</option>
+  </select>
+  <button type="submit">套用</button>
+  <button type="button" id="shareBtn" title="產生可貼回 Notion embed 的網址">分享網址</button>
+  <div class="share" id="share">
+    <input id="shareUrl" readonly title="本頁網址（含目前設定）">
+    <input id="windyUrl" readonly title="Windy 直連網址（不需架設本頁也能用）">
+  </div>
+  <div class="msg" id="msg"></div>
+</form>
+<iframe id="map" title="Windy" allowfullscreen></iframe>
+
+<script src="gmap.js"></script>
+<script>
+// 預設地區：要加減直接改這裡（zoom 可省略）
+var PRESETS = [
+  { id: 'nagano',    name: '長野・白馬/野澤',  lat: 36.5527, lon: 138.50,  zoom: 9 },
+  { id: 'niseko',    name: '北海道・二世谷',    lat: 42.8048, lon: 140.6874, zoom: 9 },
+  { id: 'furano',    name: '北海道・富良野',    lat: 43.3420, lon: 142.3832, zoom: 9 },
+  { id: 'sapporo',   name: '北海道・札幌',      lat: 43.0618, lon: 141.3545, zoom: 9 },
+  { id: 'yuzawa',    name: '新潟・湯澤',        lat: 36.9336, lon: 138.8170, zoom: 9 },
+  { id: 'zao',       name: '山形・藏王',        lat: 38.1667, lon: 140.4167, zoom: 9 },
+  { id: 'tokyo',     name: '東京',              lat: 35.6812, lon: 139.7671, zoom: 8 },
+  { id: 'kyoto',     name: '京都・大阪',        lat: 34.8500, lon: 135.6000, zoom: 8 },
+  { id: 'okinawa',   name: '沖繩',              lat: 26.3344, lon: 127.8056, zoom: 8 },
+  { id: 'seoul',     name: '首爾',              lat: 37.5665, lon: 126.9780, zoom: 8 },
+  { id: 'taipei',    name: '台北',              lat: 25.0330, lon: 121.5654, zoom: 8 },
+  { id: 'taiwan',    name: '台灣全島',          lat: 23.7000, lon: 121.0000, zoom: 7 }
+];
+var DEFAULT_ZOOM = 9;
+
+var form = document.getElementById('bar');
+var msg = document.getElementById('msg');
+var map = document.getElementById('map');
+
+form.loc.innerHTML = '<option value="">— 選擇地區 —</option>' + PRESETS.map(function (p) {
+  return '<option value="' + p.id + '">' + p.name + '</option>';
+}).join('');
+
+function windyUrl(lat, lon, zoom, overlay) {
+  var q = new URLSearchParams({
+    type: 'map', location: 'coordinates',
+    metricRain: 'mm', metricTemp: '°C', metricWind: 'km/h',
+    zoom: zoom, overlay: overlay, product: 'ecmwf', level: 'surface',
+    lat: lat, lon: lon, detailLat: lat, detailLon: lon, detail: 'true'
+  });
+  return 'https://embed.windy.com/embed.html?' + q.toString();
+}
+
+function setMsg(text, isErr) {
+  msg.textContent = text || '';
+  msg.className = 'msg' + (isErr ? ' err' : '');
+}
+
+// 由目前表單狀態決定座標；回傳 { lat, lon, zoom, label } 或 null
+function resolve() {
+  var gmap = form.gmap.value.trim();
+  if (gmap) {
+    var r = GMap.parseLocation(gmap);
+    if (r.error) { setMsg(r.error, true); return null; }
+    return { lat: r.lat, lon: r.lon, zoom: r.zoom || DEFAULT_ZOOM, label: r.lat.toFixed(4) + ', ' + r.lon.toFixed(4) };
+  }
+  var p = PRESETS.filter(function (x) { return x.id === form.loc.value; })[0] || PRESETS[0];
+  form.loc.value = p.id;
+  return { lat: p.lat, lon: p.lon, zoom: p.zoom || DEFAULT_ZOOM, label: p.name };
+}
+
+function apply() {
+  var c = resolve();
+  if (!c) return;
+  var params = new URLSearchParams(location.search);
+  var zoom = params.get('zoom') || c.zoom;
+  var url = windyUrl(c.lat, c.lon, zoom, form.overlay.value);
+  if (map.src !== url) map.src = url;
+  setMsg('中心：' + c.label);
+
+  // 把目前設定寫回網址，方便複製回 Notion
+  ['loc', 'gmap', 'overlay'].forEach(function (k) {
+    var v = form[k].value.trim();
+    if (k === 'loc' && form.gmap.value.trim()) v = '';
+    v ? params.set(k, v) : params.delete(k);
+  });
+  var qs = params.toString();
+  history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
+  document.getElementById('shareUrl').value = location.href;
+  document.getElementById('windyUrl').value = url;
+}
+
+// 初始值：?loc=niseko 或 ?gmap=<連結或座標> 或 ?lat=..&lon=..；&overlay= &zoom= &ui=0（隱藏控制列）
+(function init() {
+  var q = new URLSearchParams(location.search);
+  if (q.get('lat') && q.get('lon')) form.gmap.value = q.get('lat') + ', ' + q.get('lon');
+  if (q.get('gmap')) form.gmap.value = q.get('gmap');
+  if (q.get('loc')) form.loc.value = q.get('loc');
+  if (q.get('overlay')) form.overlay.value = q.get('overlay');
+  if (q.get('ui') === '0') document.body.classList.add('no-ui');
+  apply();
+})();
+
+form.addEventListener('submit', function (e) { e.preventDefault(); apply(); });
+form.loc.addEventListener('change', function () { form.gmap.value = ''; apply(); });
+form.overlay.addEventListener('change', apply);
+form.gmap.addEventListener('paste', function () { setTimeout(apply, 0); });
+document.getElementById('shareBtn').addEventListener('click', function () {
+  document.getElementById('share').classList.toggle('open');
+});
+document.querySelectorAll('.share input').forEach(function (el) {
+  el.addEventListener('focus', function () { el.select(); });
+});
+</script>
+</body>
+</html>
