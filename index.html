@@ -3,16 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Windy 地區選擇</title>
+<title>Windy</title>
 <style>
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; font: 14px/1.4 -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", sans-serif; color: #37352f; }
+  html, body { margin: 0; height: 100%; font: 14px/1.4 -apple-system, BlinkMacSystemFont, "PingFang TC", "Hiragino Sans", "Noto Sans CJK", sans-serif; color: #37352f; }
   /* 面板放在地圖上方、不疊在 Windy iframe 上（在 Chrome 測試時，疊上去會讓 iframe 變空白） */
   body { display: flex; flex-direction: column; }
   .top { flex: none; padding: 4px 8px; background: #f7f6f3; border-bottom: 1px solid #e9e9e7; }
-  .toggle { max-width: 100%; height: 26px; padding: 0 10px; font: inherit; color: inherit; border: 1px solid #d3d1cb; border-radius: 4px;
+  .row { display: flex; gap: 6px; align-items: center; }
+  .toggle { min-width: 0; height: 26px; padding: 0 10px; font: inherit; color: inherit; border: 1px solid #d3d1cb; border-radius: 4px;
             background: #fff; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .toggle:hover { background: #efefed; }
+  .toggle:hover, .ext:hover { background: #efefed; }
+  .ext { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; margin-left: auto;
+         border: 1px solid #d3d1cb; border-radius: 4px; background: #fff; color: inherit; }
+  .ext svg { width: 14px; height: 14px; }
   .bar { display: none; flex-wrap: wrap; gap: 6px; align-items: center; padding-top: 6px; }
   body.open .bar { display: flex; }
   .bar select, .bar input, .bar button { font: inherit; height: 30px; padding: 0 8px; border: 1px solid #d3d1cb; border-radius: 4px; background: #fff; color: inherit; }
@@ -31,24 +35,30 @@
 </head>
 <body>
 <div class="top">
-<button type="button" class="toggle" id="toggle" aria-expanded="false" aria-controls="bar">📍 選擇地區 ▾</button>
+<div class="row">
+  <button type="button" class="toggle" id="toggle" aria-expanded="false" aria-controls="bar"></button>
+  <a class="ext" id="ext" target="_blank" rel="noopener">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M14 3h7v7"/><path d="M10 14 21 3"/><path d="M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/>
+    </svg>
+  </a>
+</div>
 <form class="bar" id="bar">
-  <select name="loc" title="預設地區"></select>
-  <input name="label" placeholder="標題（選填）" autocomplete="off" title="貼 Google Maps 連結時顯示在按鈕上的名稱">
-  <input name="gmap" placeholder="貼 Google Maps 連結，或「緯度, 經度」" autocomplete="off">
-  <select name="overlay" title="圖層">
-    <option value="snowcover">積雪</option>
-    <option value="snow">新雪</option>
-    <option value="wind">風</option>
-    <option value="rain">雨/雪</option>
-    <option value="temp">溫度</option>
-    <option value="clouds">雲</option>
+  <select name="loc"></select>
+  <input name="label" autocomplete="off">
+  <input name="gmap" autocomplete="off">
+  <select name="overlay"></select>
+  <select name="language">
+    <option value="zh-TW">繁體中文</option>
+    <option value="en">English</option>
+    <option value="ja">日本語</option>
+    <option value="ko">한국어</option>
   </select>
-  <button type="submit">套用</button>
-  <button type="button" id="shareBtn" title="產生可貼回 Notion embed 的網址">分享網址</button>
+  <button type="submit" data-i18n="apply"></button>
+  <button type="button" id="shareBtn" data-i18n="share"></button>
   <div class="share" id="share">
-    <input id="shareUrl" readonly title="本頁網址（含目前設定）">
-    <input id="windyUrl" readonly title="Windy 直連網址（不需架設本頁也能用）">
+    <input id="shareUrl" readonly>
+    <input id="windyUrl" readonly>
   </div>
   <div class="msg" id="msg"></div>
 </form>
@@ -57,40 +67,139 @@
 
 <script src="gmap.js"></script>
 <script>
-// 預設地區：要加減直接改這裡（zoom 可省略）
+// 預設地區：要加減直接改這裡（zoom 可省略；name 缺少的語系會退回 zh-TW）
 var PRESETS = [
-  { id: 'nagano',    name: '長野・白馬/野澤',  lat: 36.5527, lon: 138.50,  zoom: 9 },
-  { id: 'niseko',    name: '北海道・二世谷',    lat: 42.8048, lon: 140.6874, zoom: 9 },
-  { id: 'furano',    name: '北海道・富良野',    lat: 43.3420, lon: 142.3832, zoom: 9 },
-  { id: 'sapporo',   name: '北海道・札幌',      lat: 43.0618, lon: 141.3545, zoom: 9 },
-  { id: 'yuzawa',    name: '新潟・湯澤',        lat: 36.9336, lon: 138.8170, zoom: 9 },
-  { id: 'zao',       name: '山形・藏王',        lat: 38.1667, lon: 140.4167, zoom: 9 },
-  { id: 'tokyo',     name: '東京',              lat: 35.6812, lon: 139.7671, zoom: 8 },
-  { id: 'kyoto',     name: '京都・大阪',        lat: 34.8500, lon: 135.6000, zoom: 8 },
-  { id: 'okinawa',   name: '沖繩',              lat: 26.3344, lon: 127.8056, zoom: 8 },
-  { id: 'seoul',     name: '首爾',              lat: 37.5665, lon: 126.9780, zoom: 8 },
-  { id: 'taipei',    name: '台北',              lat: 25.0330, lon: 121.5654, zoom: 8 },
-  { id: 'taiwan',    name: '台灣全島',          lat: 23.7000, lon: 121.0000, zoom: 7 }
+  { id: 'nagano',  lat: 36.5527, lon: 138.50,   zoom: 9, name: { 'zh-TW': '長野・白馬/野澤', en: 'Nagano · Hakuba/Nozawa', ja: '長野・白馬/野沢', ko: '나가노 · 하쿠바/노자와' } },
+  { id: 'niseko',  lat: 42.8048, lon: 140.6874, zoom: 9, name: { 'zh-TW': '北海道・二世谷', en: 'Hokkaido · Niseko', ja: '北海道・ニセコ', ko: '홋카이도 · 니세코' } },
+  { id: 'furano',  lat: 43.3420, lon: 142.3832, zoom: 9, name: { 'zh-TW': '北海道・富良野', en: 'Hokkaido · Furano', ja: '北海道・富良野', ko: '홋카이도 · 후라노' } },
+  { id: 'sapporo', lat: 43.0618, lon: 141.3545, zoom: 9, name: { 'zh-TW': '北海道・札幌', en: 'Hokkaido · Sapporo', ja: '北海道・札幌', ko: '홋카이도 · 삿포로' } },
+  { id: 'yuzawa',  lat: 36.9336, lon: 138.8170, zoom: 9, name: { 'zh-TW': '新潟・湯澤', en: 'Niigata · Yuzawa', ja: '新潟・湯沢', ko: '니가타 · 유자와' } },
+  { id: 'zao',     lat: 38.1667, lon: 140.4167, zoom: 9, name: { 'zh-TW': '山形・藏王', en: 'Yamagata · Zao', ja: '山形・蔵王', ko: '야마가타 · 자오' } },
+  { id: 'tokyo',   lat: 35.6812, lon: 139.7671, zoom: 8, name: { 'zh-TW': '東京', en: 'Tokyo', ja: '東京', ko: '도쿄' } },
+  { id: 'kyoto',   lat: 34.8500, lon: 135.6000, zoom: 8, name: { 'zh-TW': '京都・大阪', en: 'Kyoto · Osaka', ja: '京都・大阪', ko: '교토 · 오사카' } },
+  { id: 'okinawa', lat: 26.3344, lon: 127.8056, zoom: 8, name: { 'zh-TW': '沖繩', en: 'Okinawa', ja: '沖縄', ko: '오키나와' } },
+  { id: 'seoul',   lat: 37.5665, lon: 126.9780, zoom: 8, name: { 'zh-TW': '首爾', en: 'Seoul', ja: 'ソウル', ko: '서울' } },
+  { id: 'taipei',  lat: 25.0330, lon: 121.5654, zoom: 8, name: { 'zh-TW': '台北', en: 'Taipei', ja: '台北', ko: '타이베이' } },
+  { id: 'taiwan',  lat: 23.7000, lon: 121.0000, zoom: 7, name: { 'zh-TW': '台灣全島', en: 'Taiwan', ja: '台湾全域', ko: '대만 전역' } }
 ];
+var OVERLAYS = ['snowcover', 'snow', 'wind', 'rain', 'temp', 'clouds'];
 var DEFAULT_ZOOM = 9;
+
+var I18N = {
+  'zh-TW': {
+    pick: '選擇地區', pickOption: '— 選擇地區 —', labelPh: '標題（選填）', labelTip: '貼 Google Maps 連結時顯示在按鈕上的名稱',
+    gmapPh: '貼 Google Maps 連結，或「緯度, 經度」', apply: '套用', share: '分享網址', shareTip: '產生可貼回 Notion embed 的網址',
+    shareUrl: '本頁網址（含目前設定）', windyUrl: 'Windy 直連網址（不需架設本頁也能用）', ext: '在 Windy.com 開啟這個位置',
+    loc: '預設地區', overlay: '圖層', lang: '語系', center: '中心：',
+    overlays: { snowcover: '積雪', snow: '新雪', wind: '風', rain: '雨/雪', temp: '溫度', clouds: '雲' },
+    errors: {
+      empty: '請輸入 Google Maps 連結或座標',
+      short_link: '短網址無法在瀏覽器內展開：請先在瀏覽器打開它，再複製網址列上的完整網址貼上',
+      out_of_range: '座標超出範圍',
+      not_found: '在這個連結裡找不到座標。請在 Google Maps 點地圖上的位置，或在地點上按右鍵複製「緯度, 經度」'
+    }
+  },
+  en: {
+    pick: 'Choose area', pickOption: '— Choose area —', labelPh: 'Title (optional)', labelTip: 'Name shown on the button for a Google Maps link',
+    gmapPh: 'Paste a Google Maps link, or "lat, lon"', apply: 'Apply', share: 'Share URL', shareTip: 'Get a URL to paste back into the Notion embed',
+    shareUrl: 'This page URL (with current settings)', windyUrl: 'Direct Windy URL (works without hosting this page)', ext: 'Open this location on Windy.com',
+    loc: 'Preset area', overlay: 'Layer', lang: 'Language', center: 'Center: ',
+    overlays: { snowcover: 'Snow depth', snow: 'New snow', wind: 'Wind', rain: 'Rain/Snow', temp: 'Temperature', clouds: 'Clouds' },
+    errors: {
+      empty: 'Enter a Google Maps link or coordinates',
+      short_link: 'Short links can\'t be expanded in the browser. Open it first, then paste the full URL from the address bar',
+      out_of_range: 'Coordinates out of range',
+      not_found: 'No coordinates found in this link. Click a spot on Google Maps, or right-click a place to copy "lat, lon"'
+    }
+  },
+  ja: {
+    pick: '地域を選択', pickOption: '— 地域を選択 —', labelPh: 'タイトル（任意）', labelTip: 'Google マップのリンク使用時にボタンに表示する名前',
+    gmapPh: 'Google マップのリンク、または「緯度, 経度」を貼り付け', apply: '適用', share: '共有URL', shareTip: 'Notion の埋め込みに貼り戻せる URL を作成',
+    shareUrl: 'このページの URL（現在の設定付き）', windyUrl: 'Windy 直接リンク（このページを公開しなくても使えます）', ext: 'この位置を Windy.com で開く',
+    loc: 'プリセット地域', overlay: 'レイヤー', lang: '言語', center: '中心：',
+    overlays: { snowcover: '積雪', snow: '新雪', wind: '風', rain: '雨/雪', temp: '気温', clouds: '雲' },
+    errors: {
+      empty: 'Google マップのリンクか座標を入力してください',
+      short_link: '短縮 URL はブラウザ内で展開できません。一度開いてから、アドレスバーの完全な URL を貼り付けてください',
+      out_of_range: '座標が範囲外です',
+      not_found: 'このリンクに座標が見つかりません。Google マップで地点をクリックするか、右クリックで「緯度, 経度」をコピーしてください'
+    }
+  },
+  ko: {
+    pick: '지역 선택', pickOption: '— 지역 선택 —', labelPh: '제목 (선택)', labelTip: 'Google 지도 링크 사용 시 버튼에 표시할 이름',
+    gmapPh: 'Google 지도 링크 또는 "위도, 경도" 붙여넣기', apply: '적용', share: '공유 URL', shareTip: 'Notion 임베드에 다시 붙여넣을 URL 만들기',
+    shareUrl: '이 페이지 URL (현재 설정 포함)', windyUrl: 'Windy 직접 링크 (이 페이지를 호스팅하지 않아도 사용 가능)', ext: 'Windy.com에서 이 위치 열기',
+    loc: '프리셋 지역', overlay: '레이어', lang: '언어', center: '중심: ',
+    overlays: { snowcover: '적설', snow: '신적설', wind: '바람', rain: '비/눈', temp: '기온', clouds: '구름' },
+    errors: {
+      empty: 'Google 지도 링크나 좌표를 입력하세요',
+      short_link: '단축 URL은 브라우저에서 펼칠 수 없습니다. 먼저 열어서 주소창의 전체 URL을 붙여넣으세요',
+      out_of_range: '좌표가 범위를 벗어났습니다',
+      not_found: '이 링크에서 좌표를 찾을 수 없습니다. Google 지도에서 위치를 클릭하거나 우클릭해 "위도, 경도"를 복사하세요'
+    }
+  }
+};
+var HTML_LANG = { 'zh-TW': 'zh-Hant', en: 'en', ja: 'ja', ko: 'ko' };
 
 var form = document.getElementById('bar');
 var msg = document.getElementById('msg');
 var map = document.getElementById('map');
 var toggleBtn = document.getElementById('toggle');
+var extLink = document.getElementById('ext');
+var lang = 'zh-TW';
 
-form.loc.innerHTML = '<option value="">— 選擇地區 —</option>' + PRESETS.map(function (p) {
-  return '<option value="' + p.id + '">' + p.name + '</option>';
-}).join('');
+function t(key) { return I18N[lang][key]; }
+
+function presetName(p) { return p.name[lang] || p.name['zh-TW']; }
+
+// 沒指定語系時依瀏覽器語言猜：zh-* → zh-TW、ja、ko，其餘 en
+function detectLang() {
+  var nav = (navigator.languages && navigator.languages[0]) || navigator.language || '';
+  var base = nav.toLowerCase().split('-')[0];
+  if (base === 'zh') return 'zh-TW';
+  return I18N[base] ? base : 'en';
+}
+
+function renderTexts() {
+  document.documentElement.lang = HTML_LANG[lang];
+  document.querySelectorAll('[data-i18n]').forEach(function (el) { el.textContent = t(el.dataset.i18n); });
+  var loc = form.loc.value;
+  form.loc.innerHTML = '<option value="">' + t('pickOption') + '</option>' + PRESETS.map(function (p) {
+    return '<option value="' + p.id + '">' + presetName(p) + '</option>';
+  }).join('');
+  form.loc.value = loc;
+  var overlay = form.overlay.value || OVERLAYS[0];
+  form.overlay.innerHTML = OVERLAYS.map(function (o) {
+    return '<option value="' + o + '">' + t('overlays')[o] + '</option>';
+  }).join('');
+  form.overlay.value = overlay;
+  form.label.placeholder = t('labelPh');
+  form.label.title = t('labelTip');
+  form.gmap.placeholder = t('gmapPh');
+  form.loc.title = t('loc');
+  form.overlay.title = t('overlay');
+  form.language.title = t('lang');
+  document.getElementById('shareBtn').title = t('shareTip');
+  document.getElementById('shareUrl').title = t('shareUrl');
+  document.getElementById('windyUrl').title = t('windyUrl');
+  extLink.title = t('ext');
+  extLink.setAttribute('aria-label', t('ext'));
+}
 
 function windyUrl(lat, lon, zoom, overlay) {
   var q = new URLSearchParams({
     type: 'map', location: 'coordinates',
     metricRain: 'mm', metricTemp: '°C', metricWind: 'km/h',
     zoom: zoom, overlay: overlay, product: 'ecmwf', level: 'surface',
-    lat: lat, lon: lon, detailLat: lat, detailLon: lon, detail: 'true'
+    lat: lat, lon: lon, detailLat: lat, detailLon: lon, detail: 'true', lang: lang
   });
   return 'https://embed.windy.com/embed.html?' + q.toString();
+}
+
+// windy.com 主站：/<lat>/<lon> 開啟該點預報，?<圖層>,<lat>,<lon>,<zoom> 決定地圖畫面
+function windySiteUrl(lat, lon, zoom, overlay) {
+  var la = (+lat).toFixed(4), lo = (+lon).toFixed(4);
+  return 'https://www.windy.com/' + la + '/' + lo + '?' + [overlay, la, lo, zoom].join(',');
 }
 
 function setMsg(text, isErr) {
@@ -109,23 +218,27 @@ function resolveCoords() {
   var gmap = form.gmap.value.trim();
   if (gmap) {
     var r = GMap.parseLocation(gmap);
-    if (r.error) { setMsg(r.error, true); return null; }
+    if (r.error) { setMsg(t('errors')[r.error], true); return null; }
     form.loc.value = '';
     return { lat: r.lat, lon: r.lon, zoom: r.zoom || DEFAULT_ZOOM, label: r.lat.toFixed(4) + ', ' + r.lon.toFixed(4) };
   }
   var p = PRESETS.filter(function (x) { return x.id === form.loc.value; })[0] || PRESETS[0];
   form.loc.value = p.id;
-  return { lat: p.lat, lon: p.lon, zoom: p.zoom || DEFAULT_ZOOM, label: p.name };
+  return { lat: p.lat, lon: p.lon, zoom: p.zoom || DEFAULT_ZOOM, label: presetName(p) };
 }
 
 function apply() {
   var c = resolve();
-  if (!c) return false;
+  if (!c) {
+    toggleBtn.textContent = '📍 ' + t('pick') + ' ▾';
+    return false;
+  }
   var params = new URLSearchParams(location.search);
   var zoom = params.get('zoom') || c.zoom;
   var url = windyUrl(c.lat, c.lon, zoom, form.overlay.value);
   if (map.src !== url) map.src = url;
-  setMsg('中心：' + c.label);
+  extLink.href = windySiteUrl(c.lat, c.lon, zoom, form.overlay.value);
+  setMsg(t('center') + c.label);
   toggleBtn.textContent = '📍 ' + c.label + ' ▾';
 
   // 把目前設定寫回網址，方便複製回 Notion
@@ -134,6 +247,7 @@ function apply() {
     if (k === 'loc' && form.gmap.value.trim()) v = '';
     v ? params.set(k, v) : params.delete(k);
   });
+  params.set('lang', lang);
   var qs = params.toString();
   history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
   document.getElementById('shareUrl').value = location.href;
@@ -151,9 +265,12 @@ function applyAndClose() {
   if (apply()) setOpen(false);
 }
 
-// 初始值：?loc=niseko 或 ?gmap=<連結或座標> 或 ?lat=..&lon=..；&label=<標題> &overlay= &zoom= &ui=0（隱藏控制列）
+// 初始值：?loc=niseko 或 ?gmap=<連結或座標> 或 ?lat=..&lon=..；&label=<標題> &overlay= &lang= &zoom= &ui=0（隱藏控制列）
 (function init() {
   var q = new URLSearchParams(location.search);
+  lang = I18N[q.get('lang')] ? q.get('lang') : detectLang();
+  form.language.value = lang;
+  renderTexts();
   if (q.get('lat') && q.get('lon')) form.gmap.value = q.get('lat') + ', ' + q.get('lon');
   if (q.get('gmap')) form.gmap.value = q.get('gmap');
   if (q.get('label')) form.label.value = q.get('label');
@@ -172,6 +289,12 @@ document.addEventListener('keydown', function (e) {
 form.addEventListener('submit', function (e) { e.preventDefault(); applyAndClose(); });
 form.loc.addEventListener('change', function () { form.gmap.value = ''; form.label.value = ''; applyAndClose(); });
 form.overlay.addEventListener('change', apply);
+// 欄位不能叫 lang：form.lang 會拿到 <form> 內建的 lang 屬性
+form.language.addEventListener('change', function () {
+  lang = form.language.value;
+  renderTexts();
+  apply();
+});
 // 貼上只更新地圖、不收合，方便接著填標題
 form.gmap.addEventListener('paste', function () { setTimeout(apply, 0); });
 form.label.addEventListener('input', apply);

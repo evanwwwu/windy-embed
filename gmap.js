@@ -12,20 +12,20 @@
   var NUM = '(-?\\d+(?:\\.\\d+)?)';
   var SEP = '\\s*(?:,|%2C)\\s*';
 
-  // 回傳 { lat, lon, zoom? } 或 { error }
+  // 回傳 { lat, lon, zoom? } 或 { error: 'empty' | 'short_link' | 'out_of_range' | 'not_found' }
   function parseLocation(input) {
     var s = String(input || '').trim();
-    if (!s) return { error: '請輸入 Google Maps 連結或座標' };
+    if (!s) return { error: 'empty' };
 
     if (/^https?:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps)\//i.test(s)) {
-      return { error: '短網址無法在瀏覽器內展開：請先在瀏覽器打開它，再複製網址列上的完整網址貼上' };
+      return { error: 'short_link' };
     }
 
     try { s = decodeURIComponent(s); } catch (e) { /* 保留原字串 */ }
 
     // 1. 純座標「36.55, 138.5」
     var m = s.match(new RegExp('^' + NUM + SEP + NUM + '$'));
-    if (m) return pair(m[1], m[2]) || { error: '座標超出範圍' };
+    if (m) return pair(m[1], m[2]) || { error: 'out_of_range' };
 
     var zoomMatch = s.match(/@-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?,(\d+(?:\.\d+)?)z/);
     var zoom = zoomMatch ? Math.round(parseFloat(zoomMatch[1])) : undefined;
@@ -41,11 +41,11 @@
 
     if (m) {
       var p = pair(m[1], m[2]);
-      if (!p) return { error: '座標超出範圍' };
+      if (!p) return { error: 'out_of_range' };
       if (zoom) p.zoom = zoom;
       return p;
     }
-    return { error: '在這個連結裡找不到座標。請在 Google Maps 點地圖上的位置，或在地點上按右鍵複製「緯度, 經度」' };
+    return { error: 'not_found' };
   }
 
   var api = { parseLocation: parseLocation };

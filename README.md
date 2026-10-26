@@ -10,6 +10,7 @@
 | `gmap` | Google Maps 完整連結，或「緯度, 經度」（需 URL encode） | `?gmap=36.69,137.86` |
 | `lat` / `lon` | 直接給座標 | `?lat=36.69&lon=137.86` |
 | `label` | 顯示在收合按鈕上的標題（需 URL encode） | `&label=白馬八方尾根` |
+| `lang` | 介面與 Windy 地圖語系：`zh-TW` `en` `ja` `ko`（未指定時依瀏覽器語言） | `&lang=ja` |
 | `overlay` | `snowcover` `snow` `wind` `rain` `temp` `clouds` | `&overlay=wind` |
 | `zoom` | 縮放等級（覆蓋預設值） | `&zoom=10` |
 | `ui=0` | 隱藏上方控制列，只顯示地圖 | `&ui=0` |
