@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>行事曆</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; font: 13px/1.4 -apple-system, BlinkMacSystemFont, "PingFang TC", "Hiragino Sans", "Noto Sans CJK", sans-serif; color: #37352f; background: #fff; }
+  body { padding: 8px; user-select: none; -webkit-user-select: none; touch-action: pan-y; }
+  .head { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
+  .title { flex: 1; text-align: center; font-weight: 600; font-size: 14px; }
+  .head button { height: 26px; min-width: 26px; padding: 0 6px; font: inherit; color: inherit; border: 1px solid #d3d1cb; border-radius: 4px; background: #fff; cursor: pointer; }
+  .head button:hover { background: #efefed; }
+  .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+  .wd { font-size: 11px; color: #9b9a97; padding: 2px 0; }
+  .day { position: relative; padding: 4px 0 7px; border-radius: 4px; cursor: default; }
+  .day.out { visibility: hidden; }
+  .day.weekend { color: #9b9a97; }
+  .day.tw { color: #e03e3e; font-weight: 600; background: #fdebec; }
+  .day.work { color: #37352f; background: #f1f1ef; }
+  .day.today { outline: 2px solid #2383e2; outline-offset: -2px; }
+  /* 日本假日：日期下方的藍點 */
+  .day.jp::after { content: ""; position: absolute; left: 50%; bottom: 2px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: #2383e2; }
+  .list { margin: 8px 0 0; padding: 0; list-style: none; font-size: 12px; }
+  .list li { display: flex; gap: 6px; padding: 2px 0; }
+  .list .d { flex: none; width: 58px; color: #787774; }
+  .tag { flex: none; padding: 0 4px; border-radius: 3px; font-size: 11px; line-height: 17px; }
+  .tag.tw { background: #fdebec; color: #e03e3e; }
+  .tag.jp { background: #e7f3f8; color: #2383e2; }
+  .tag.work { background: #f1f1ef; color: #787774; }
+  .msg { margin-top: 6px; font-size: 11px; color: #9b9a97; }
+  .msg.err { color: #e03e3e; }
+</style>
+</head>
+<body>
+<div class="head">
+  <button type="button" id="prev" aria-label="上個月">‹</button>
+  <div class="title" id="title"></div>
+  <button type="button" id="next" aria-label="下個月">›</button>
+  <button type="button" id="today">今天</button>
+</div>
+<div class="grid" id="grid"></div>
+<ul class="list" id="list"></ul>
+<div class="msg" id="msg"></div>
+
+<script>
+// 網址參數：?jp=1 顯示日本假日；?month=2027-01 指定起始月份
+var params = new URLSearchParams(location.search);
+var SHOW_JP = /^(1|true|on|yes)$/i.test(params.get('jp') || '');
+
+var TW_URL = function (y) { return 'https://cdn.jsdelivr.net/gh/ruyut/TaiwanCalendar/data/' + y + '.json'; };
+var JP_URL = function (y) { return 'https://holidays-jp.github.io/api/v1/' + y + '/date.json'; };
+var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
+
+var now = new Date();
+var view = { y: now.getFullYear(), m: now.getMonth() };
+var mm = (params.get('month') || '').match(/^(\d{4})-(\d{1,2})$/);
+if (mm && +mm[2] >= 1 && +mm[2] <= 12) view = { y: +mm[1], m: +mm[2] - 1 };
+
+// 年份 -> Promise<{ 'YYYY-MM-DD': {...} }>，同一年只抓一次
+var cache = { tw: {}, jp: {} };
+
+function pad(n) { return (n < 10 ? '0' : '') + n; }
+function key(y, m, d) { return y + '-' + pad(m + 1) + '-' + pad(d); }
+
+function loadTW(y) {
+  if (!cache.tw[y]) {
+    cache.tw[y] = fetch(TW_URL(y)).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    }).then(function (rows) {
+      var map = {};
+      rows.forEach(function (r) {
+        var k = r.date.slice(0, 4) + '-' + r.date.slice(4, 6) + '-' + r.date.slice(6, 8);
+        var weekend = r.week === '六' || r.week === '日';
+        if (r.isHoliday && (r.description || !weekend)) map[k] = { type: 'tw', name: r.description || '放假' };
+        else if (!r.isHoliday && weekend) map[k] = { type: 'work', name: '補班' };
+      });
+      return map;
+    }).catch(function (e) { delete cache.tw[y]; throw e; });
+  }
+  return cache.tw[y];
+}
+
+function loadJP(y) {
+  if (!cache.jp[y]) {
+    cache.jp[y] = fetch(JP_URL(y)).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    }).catch(function (e) { delete cache.jp[y]; throw e; });
+  }
+  return cache.jp[y];
+}
+
+var $ = function (id) { return document.getElementById(id); };
+var renderId = 0;
+
+function render() {
+  var y = view.y, m = view.m, id = ++renderId;
+  $('title').textContent = y + ' 年 ' + (m + 1) + ' 月';
+  drawGrid(y, m, {}, {});
+  $('list').innerHTML = '';
+  $('msg').className = 'msg';
+  $('msg').textContent = '載入中…';
+
+  // 個別失敗不影響另一邊
+  var tw = loadTW(y).catch(function () { return null; });
+  var jp = SHOW_JP ? loadJP(y).catch(function () { return null; }) : Promise.resolve({});
+  Promise.all([tw, jp]).then(function (res) {
+    if (id !== renderId) return;
+    drawGrid(y, m, res[0] || {}, res[1] || {});
+    var errs = [];
+    if (!res[0]) errs.push('台灣');
+    if (!res[1]) errs.push('日本');
+    $('msg').className = errs.length ? 'msg err' : 'msg';
+    $('msg').textContent = errs.length ? errs.join('、') + ' ' + y + ' 年假日資料載入失敗' : '';
+  });
+}
+
+function drawGrid(y, m, tw, jp) {
+  var grid = $('grid'), list = $('list');
+  grid.innerHTML = WEEK.map(function (w) { return '<div class="wd">' + w + '</div>'; }).join('');
+  list.innerHTML = '';
+
+  var first = new Date(y, m, 1).getDay();
+  var days = new Date(y, m + 1, 0).getDate();
+  var todayKey = key(now.getFullYear(), now.getMonth(), now.getDate());
+
+  for (var i = 0; i < first; i++) grid.appendChild(cell('day out', ''));
+
+  for (var d = 1; d <= days; d++) {
+    var k = key(y, m, d), wd = (first + d - 1) % 7;
+    var cls = ['day'], tips = [];
+    if (wd === 0 || wd === 6) cls.push('weekend');
+    if (tw[k]) { cls.push(tw[k].type); tips.push(tw[k].name); }
+    if (jp[k]) { cls.push('jp'); tips.push('🇯🇵 ' + jp[k]); }
+    if (k === todayKey) cls.push('today');
+    var el = cell(cls.join(' '), d);
+    if (tips.length) el.title = tips.join('\n');
+    grid.appendChild(el);
+
+    var label = (m + 1) + '/' + d + ' (' + WEEK[wd] + ')';
+    if (tw[k]) list.appendChild(item(label, tw[k].type, tw[k].type === 'work' ? '補班' : '台灣', tw[k].name));
+    if (jp[k]) list.appendChild(item(label, 'jp', '日本', jp[k]));
+  }
+}
+
+function cell(cls, text) {
+  var el = document.createElement('div');
+  el.className = cls;
+  el.textContent = text;
+  return el;
+}
+
+function item(date, type, tag, name) {
+  var li = document.createElement('li');
+  li.innerHTML = '<span class="d"></span><span class="tag ' + type + '"></span><span class="n"></span>';
+  li.children[0].textContent = date;
+  li.children[1].textContent = tag;
+  li.children[2].textContent = type === 'work' ? '' : name;
+  return li;
+}
+
+function shift(n) {
+  var t = new Date(view.y, view.m + n, 1);
+  view = { y: t.getFullYear(), m: t.getMonth() };
+  render();
+}
+
+$('prev').onclick = function () { shift(-1); };
+$('next').onclick = function () { shift(1); };
+$('today').onclick = function () { view = { y: now.getFullYear(), m: now.getMonth() }; render(); };
+
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'ArrowLeft') shift(-1);
+  else if (e.key === 'ArrowRight') shift(1);
+});
+
+// 左右滑動切換月份（觸控與滑鼠拖曳都可以）
+var startX = null, startY = 0;
+document.addEventListener('pointerdown', function (e) {
+  if (e.target.closest('button')) return;
+  startX = e.clientX; startY = e.clientY;
+});
+document.addEventListener('pointerup', function (e) {
+  if (startX === null) return;
+  var dx = e.clientX - startX, dy = e.clientY - startY;
+  startX = null;
+  if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) shift(dx < 0 ? 1 : -1);
+});
+document.addEventListener('pointercancel', function () { startX = null; });
+
+render();
+</script>
+</body>
+</html>

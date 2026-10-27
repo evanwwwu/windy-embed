@@ -24,3 +24,17 @@
 ## 不架站的用法
 
 在本機打開 `index.html`，選好地點後按「分享網址」，第二個欄位會顯示 **Windy 直連網址**，直接貼到 Notion embed 區塊即可。缺點是之後不能在 Notion 裡切換地點。
+
+# 行事曆（`calendar.html`）
+
+顯示台灣國定假日、補假、補班的月曆，可以用 ‹ › 按鈕、鍵盤方向鍵或左右滑動切換月份。貼進 Notion 的 embed 區塊即可使用。
+
+| 參數 | 說明 | 例 |
+|---|---|---|
+| `jp` | `1` 時另外顯示日本假日（日期下方藍點＋列表） | `?jp=1` |
+| `month` | 起始月份（預設是本月） | `?month=2027-01` |
+
+假日資料直接在瀏覽器線上抓取，每個年份只抓一次：
+
+- 台灣：[ruyut/TaiwanCalendar](https://github.com/ruyut/TaiwanCalendar)（整理自行政院人事行政總處辦公日曆表），透過 jsDelivr 讀取
+- 日本：[holidays-jp](https://holidays-jp.github.io/)
